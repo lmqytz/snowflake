@@ -1,5 +1,5 @@
 {
-  "etcd_addr": [
-    "localhost:2379"
-  ]
+  "net_card": "enp0s3",
+  "log_path": "/var/log/snowflake/",
+  "listen": ":6380"
 }

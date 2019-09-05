@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	WorkerIdBits   = 5
+	WorkerIdBits   = 8
 	BusinessIdBits = 7
-	SequenceBits   = 10
-	MaxSequence    = -1 ^ (-1 << 10)
+	SequenceBits   = 7
+	MaxSequence    = -1 ^ (-1 << SequenceBits)
 	Timezone       = "Asia/Shanghai"
 )
 
@@ -85,17 +85,10 @@ func nextMillisecond(millisecond uint64) uint64 {
 	return c
 }
 
-func NewIdGen() (*IdGen, error) {
-	max := int(math.Pow(2, WorkerIdBits))
-	workerId, err := getWorkId(max)
-
-	if err != nil {
-		return nil, err
-	}
-
+func NewIdGen(workerId uint32) (*IdGen, error) {
 	maxWorkId := uint32(math.Pow(2, WorkerIdBits))
 	if workerId > maxWorkId {
-		return nil, fmt.Errorf("workerId should not greater then " + strconv.Itoa(int(maxWorkId)))
+		return nil, fmt.Errorf("workerId should not greater than " + strconv.Itoa(int(maxWorkId)))
 	}
 
 	idGen := &IdGen{

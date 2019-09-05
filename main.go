@@ -3,75 +3,99 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/tidwall/redcon"
+	"github.com/bsm/redeo"
+	"github.com/bsm/redeo/resp"
+	"net"
+	"os"
+	"os/signal"
 	"strconv"
-	"strings"
+	"syscall"
 )
 
-var (
-	addr  = ":6380"
-	idGen *IdGen
-)
+func init() {
+	initConfig()
+	initLog()
+}
+
+var idGen *IdGen
 
 func main() {
-	initConfig()
-
-	var initErr error
-	idGen, initErr = NewIdGen()
-	if initErr != nil {
-		panic(initErr)
+	netCard := config.NetCard
+	workerIdString, err := getWorkId(netCard)
+	if err != nil {
+		logger.Fatalln(err)
 	}
 
-	startErr := redcon.ListenAndServe(
-		addr,
-		handle,
-		func(conn redcon.Conn) bool {
-			return true
-		},
-		func(conn redcon.Conn, err error) {},
-	)
+	workerId, _ := strconv.ParseUint(workerIdString, 10, 64)
+	idGen, err = NewIdGen(uint32(workerId))
+	if err != nil {
+		logger.Fatalln(err)
+	}
 
-	if startErr != nil {
-		panic(startErr)
+	var srv *redeo.Server
+	srv = redeo.NewServer(nil)
+	srv.HandleFunc("get", commandGet)
+	srv.HandleFunc("parse", commandParse)
+	srv.HandleFunc("ping", commandPing)
+
+	lis, err := net.Listen("tcp", config.Listen)
+	if err != nil {
+		logger.Fatalln(err)
+	}
+
+	defer func() {
+		if err := lis.Close(); err != nil {
+			logger.Println(err)
+		}
+	}()
+
+	var errChan = make(chan string)
+	go func() {
+		if err := srv.Serve(lis); err != nil {
+			errChan <- err.Error()
+		}
+	}()
+
+	ch := make(chan os.Signal, 1)
+	go func() {
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	}()
+
+	select {
+	case errMsg := <-errChan:
+		logger.Fatalln(errMsg)
+	case <-ch:
+		fmt.Println("receive signal, bye.")
 	}
 }
 
-func handle(conn redcon.Conn, cmd redcon.Command) {
-	switch strings.ToLower(string(cmd.Args[0])) {
-	case "get":
-		if len(cmd.Args) != 2 {
-			conn.WriteError("ERR wrong number of arguments for get command")
-			return
-		}
-
-		businessId, _ := strconv.Atoi(string(cmd.Args[1]))
-		id := idGen.Next(uint32(businessId))
-
-		conn.WriteBulk([]byte(strconv.FormatUint(id, 10)))
-	case "parse":
-		if len(cmd.Args) != 2 {
-			conn.WriteError("ERR wrong number of arguments for parse command")
-			return
-		}
-
-		id, _ := strconv.ParseUint(string(cmd.Args[1]), 10, 64)
-
-		result, err := json.Marshal(idGen.Parse(id))
-		if err != nil {
-			conn.WriteError(err.Error())
-		} else {
-			conn.WriteBulk(result)
-		}
-	case "ping":
-		conn.WriteString("PONG")
-	case "quit":
-		conn.WriteString("OK")
-		err := conn.Close()
-
-		if err != nil {
-			fmt.Println(err)
-		}
-	default:
-		conn.WriteError("ERR unknown command '" + string(cmd.Args[0]) + "'")
+func commandGet(w resp.ResponseWriter, c *resp.Command) {
+	if c.ArgN() != 1 {
+		w.AppendError(redeo.WrongNumberOfArgs(c.Name))
+		return
 	}
+
+	businessId, _ := strconv.Atoi(c.Arg(0).String())
+	id := idGen.Next(uint32(businessId))
+	w.AppendBulkString(strconv.FormatUint(id, 10))
+}
+
+func commandParse(w resp.ResponseWriter, c *resp.Command) {
+	if c.ArgN() != 1 {
+		w.AppendError(redeo.WrongNumberOfArgs(c.Name))
+		return
+	}
+
+	id, _ := strconv.ParseUint(c.Arg(0).String(), 10, 64)
+
+	result, err := json.Marshal(idGen.Parse(id))
+	if err != nil {
+		w.AppendError(redeo.WrongNumberOfArgs(c.Name))
+	} else {
+		w.AppendInline(result)
+	}
+}
+
+func commandPing(w resp.ResponseWriter, _ *resp.Command) {
+	w.AppendInlineString("PONG")
 }

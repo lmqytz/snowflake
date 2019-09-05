@@ -26,13 +26,9 @@
 
 
 [[constraint]]
-  name = "github.com/tidwall/redcon"
-  version = "1.0.0"
+  name = "github.com/bsm/redeo"
+  version = "2.2.1"
 
 [prune]
   go-tests = true
   unused-packages = true
-
-[[constraint]]
-  name = "go.etcd.io/etcd"
-  version = "2.3.8"
